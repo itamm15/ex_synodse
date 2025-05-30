@@ -21,6 +21,14 @@ defmodule ExSynodse.Registrator do
     {:noreply, nil}
   end
 
+  @impl true
+  def handle_info({:DOWN, _ref, :process, exited_pid, reason}, _state) do
+    Logger.info("Node #{inspect(exited_pid)} is down, reason: #{inspect(reason)}")
+
+    ## todo; handle leader election in case the leader is down
+    {:noreply, nil}
+  end
+
   defp register do
     node = self()
 
