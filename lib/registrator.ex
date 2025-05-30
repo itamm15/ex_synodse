@@ -13,6 +13,14 @@ defmodule ExSynodse.Registrator do
     {:ok, register()}
   end
 
+  @impl true
+  def handle_info({:monitor_me, node_to_monitor}, _state) do
+    Logger.info("Monitoring #{inspect(node_to_monitor)}")
+    monitor_node(node_to_monitor)
+
+    {:noreply, nil}
+  end
+
   defp register do
     node = self()
 
@@ -25,7 +33,7 @@ defmodule ExSynodse.Registrator do
         leader = :global.whereis_name(:leader)
         Logger.info("I am not the leader, I will monitor the leader, #{inspect(leader)}")
         ## notify the leader about new node
-        # TBD
+        send(leader, {:monitor_me, node})
         ## monitor the leader
         monitor_node(leader)
     end
