@@ -4,13 +4,22 @@ defmodule ExSynodse.Registrator do
 
   require Logger
 
+  defstruct [processes: []]
+
+  def new(processes) do
+    processes = Enum.map(processes, &(SupervisedProcess.new(&1)))
+
+    %__MODULE__{processes: processes}
+  end
+
   def start_link(args), do: GenServer.start_link(__MODULE__, args, name: __MODULE__)
 
   @impl true
   def init(args) do
     Logger.info("Registrator started..")
+    state = new(args)
 
-    {:ok, register(args)}
+    {:ok, register(state)}
   end
 
   @impl true
@@ -29,7 +38,8 @@ defmodule ExSynodse.Registrator do
     {:noreply, nil}
   end
 
-  defp register(args) do
+  defp register(%__MODULE__{} = state) do
+    IO.inspect(state, label: "state")
     node = self()
 
     ## register the process globally under the leadership name
@@ -37,7 +47,7 @@ defmodule ExSynodse.Registrator do
       :yes ->
         Logger.info("I am the leader, #{inspect(node)}")
         {:ok, supervisor} = start_leader_supervisor()
-        supervise_processes(args, supervisor)
+        supervise_processes(state, supervisor)
 
       :no ->
         leader = :global.whereis_name(:leader)
@@ -55,11 +65,11 @@ defmodule ExSynodse.Registrator do
 
   defp monitor_node(node_pid), do: Process.monitor(node_pid)
 
-  defp supervise_processes(args, supervisor) do
-    Enum.each(args, fn {module, args} ->
+  defp supervise_processes(%__MODULE__{processes: processes}, supervisor) do
+    Enum.each(processes, fn %SupervisedProcess{module: module} ->
       Logger.info("Supervising #{inspect(module)}")
 
-      Supervisor.start_child(supervisor, {module, args})
+      Supervisor.start_child(supervisor, module)
     end)
   end
 end
