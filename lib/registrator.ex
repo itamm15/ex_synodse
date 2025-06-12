@@ -25,19 +25,22 @@ defmodule ExSynodse.Registrator do
   end
 
   @impl true
-  def handle_info({:monitor_me, node_to_monitor}, _state) do
+  def handle_info({:monitor_me, node_to_monitor}, state) do
     Logger.info("Monitoring #{inspect(node_to_monitor)}")
     monitor_node(node_to_monitor)
 
-    {:noreply, nil}
+    {:noreply, state}
   end
 
   @impl true
-  def handle_info({:DOWN, _ref, :process, exited_pid, reason}, _state) do
+  def handle_info({:DOWN, _ref, :process, exited_pid, reason}, state) do
     Logger.info("Node #{inspect(exited_pid)} is down, reason: #{inspect(reason)}")
 
     ## todo; handle leader election in case the leader is down
-    {:noreply, nil}
+    processes_to_restart = Enum.filter(state.processes, &(&1.restart?))
+    supervise_processes(processes_to_restart, state.supervisor)
+
+    {:noreply, state}
   end
 
   defp register(%__MODULE__{} = state) do
@@ -47,7 +50,7 @@ defmodule ExSynodse.Registrator do
     case :global.register_name(:leader, node) do
       :yes ->
         Logger.info("I am the leader, #{inspect(node)}")
-        supervise_processes(state)
+        supervise_processes(state.processes, state.supervisor)
 
       :no ->
         leader = :global.whereis_name(:leader)
@@ -57,11 +60,13 @@ defmodule ExSynodse.Registrator do
         ## monitor the leader
         monitor_node(leader)
     end
+
+    state
   end
 
   defp monitor_node(node_pid), do: Process.monitor(node_pid)
 
-  defp supervise_processes(%__MODULE__{processes: processes, supervisor: supervisor}) do
+  defp supervise_processes(processes, supervisor) do
     Enum.each(processes, fn %SupervisedProcess{module: module} ->
       Logger.info("Supervising #{inspect(module)}")
 
