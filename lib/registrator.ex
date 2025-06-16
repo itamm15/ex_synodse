@@ -2,13 +2,15 @@ defmodule ExSynodse.Registrator do
   ## Todo: monitor the leader in the database with heartbeats
   use GenServer
 
+  import Ecto.Query
+
   require Logger
 
   @enforce_keys [:supervisor]
   defstruct [:supervisor, processes: []]
 
   def new(processes) do
-    processes = Enum.map(processes, &(SupervisedProcess.new(&1)))
+    processes = Enum.map(processes, &SupervisedProcess.new(&1))
     {:ok, supervisor} = start_leader_supervisor()
 
     %__MODULE__{processes: processes, supervisor: supervisor}
@@ -37,7 +39,7 @@ defmodule ExSynodse.Registrator do
     Logger.info("Node #{inspect(exited_pid)} is down, reason: #{inspect(reason)}")
 
     ## todo; handle leader election in case the leader is down
-    processes_to_restart = Enum.filter(state.processes, &(&1.restart?))
+    processes_to_restart = Enum.filter(state.processes, & &1.restart?)
     supervise_processes(processes_to_restart, state.supervisor)
 
     {:noreply, state}
@@ -46,15 +48,18 @@ defmodule ExSynodse.Registrator do
   defp register(%__MODULE__{} = state) do
     node = self()
 
-    ## register the process globally under the leadership name
-    case :global.register_name(:leader, node) do
-      :yes ->
+    case try_to_become_leader() do
+      {:ok, _leader} ->
         Logger.info("I am the leader, #{inspect(node)}")
         supervise_processes(state.processes, state.supervisor)
 
-      :no ->
+      {:error, error} ->
         leader = :global.whereis_name(:leader)
-        Logger.info("I am not the leader, I will monitor the leader, #{inspect(leader)}")
+
+        Logger.info(
+          "I am not the leader, I will monitor the leader, #{inspect(leader)}, #{inspect(error)}"
+        )
+
         ## notify the leader about new node
         send(leader, {:monitor_me, node})
         ## monitor the leader
@@ -62,6 +67,39 @@ defmodule ExSynodse.Registrator do
     end
 
     state
+  end
+
+  defp try_to_become_leader do
+    repo = Repo.repo()
+    era = "1"
+    valid_until = DateTime.add(DateTime.utc_now(), 15)
+    node_id = Atom.to_string(Node.self())
+
+    repo.transaction(fn ->
+      latest_epoch_query =
+        LeaderHeartbeat
+        |> from(as: :leader_heartbeat)
+        |> where([leader_heartbeat: leader_heartbeat], leader_heartbeat.era == ^era)
+        |> select([leader_heartbeat: leader_heartbeat], max(leader_heartbeat.epoch))
+
+      latest_epoch = repo.one(latest_epoch_query) || 1
+
+      changeset =
+        LeaderHeartbeat.changeset(%LeaderHeartbeat{}, %{
+          era: era,
+          epoch: latest_epoch,
+          node_id: node_id,
+          valid_until: valid_until
+        })
+
+      case repo.insert(changeset) do
+        {:ok, leader_heartbeat} ->
+          {:ok, leader_heartbeat}
+
+        {:error, changeset} ->
+          repo.rollback({:error, changeset})
+      end
+    end)
   end
 
   defp monitor_node(node_pid), do: Process.monitor(node_pid)
