@@ -1,4 +1,4 @@
-defmodule SupervisedProcess do
+defmodule ExSynodse.SupervisedProcess do
   @enforce_keys [:module]
   defstruct [:module, :sgp?, :restart?]
 

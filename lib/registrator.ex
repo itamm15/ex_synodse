@@ -10,7 +10,7 @@ defmodule ExSynodse.Registrator do
   defstruct [:supervisor, processes: []]
 
   def new(processes) do
-    processes = Enum.map(processes, &SupervisedProcess.new(&1))
+    processes = Enum.map(processes, &ExSynodse.SupervisedProcess.new(&1))
     {:ok, supervisor} = start_leader_supervisor()
 
     %__MODULE__{processes: processes, supervisor: supervisor}
@@ -70,14 +70,14 @@ defmodule ExSynodse.Registrator do
   end
 
   defp try_to_become_leader do
-    repo = Repo.repo()
+    repo = ExSynodse.Repo.repo()
     era = "1"
     valid_until = DateTime.add(DateTime.utc_now(), 15)
     node_id = Atom.to_string(Node.self())
 
     repo.transaction(fn ->
       latest_epoch_query =
-        LeaderHeartbeat
+        ExSynodse.LeaderHeartbeat
         |> from(as: :leader_heartbeat)
         |> where([leader_heartbeat: leader_heartbeat], leader_heartbeat.era == ^era)
         |> select([leader_heartbeat: leader_heartbeat], max(leader_heartbeat.epoch))
@@ -85,7 +85,7 @@ defmodule ExSynodse.Registrator do
       latest_epoch = repo.one(latest_epoch_query) || 1
 
       changeset =
-        LeaderHeartbeat.changeset(%LeaderHeartbeat{}, %{
+        ExSynodse.LeaderHeartbeat.changeset(%ExSynodse.LeaderHeartbeat{}, %{
           era: era,
           epoch: latest_epoch,
           node_id: node_id,
@@ -105,7 +105,7 @@ defmodule ExSynodse.Registrator do
   defp monitor_node(node_pid), do: Process.monitor(node_pid)
 
   defp supervise_processes(processes, supervisor) do
-    Enum.each(processes, fn %SupervisedProcess{module: module} ->
+    Enum.each(processes, fn %ExSynodse.SupervisedProcess{module: module} ->
       Logger.info("Supervising #{inspect(module)}")
 
       Supervisor.start_child(supervisor, module)

@@ -1,4 +1,4 @@
-defmodule LeaderHeartbeat do
+defmodule ExSynodse.LeaderHeartbeat do
   use Ecto.Schema
 
   import Ecto.Changeset
